@@ -50,21 +50,30 @@ class GraphicsLab(tk.Tk):
         menu.pack(side='left', padx=5)
         ttk.Button(controls, text='Открыть .txt', command=self.open_lsystem).pack(side='left', padx=4)
         self.iterations = tk.IntVar(value=6)
-        self.jitter = tk.DoubleVar(value=12)
+        self.jitter = tk.DoubleVar(value=0)
         self.seed_l = tk.IntVar(value=42)
-        self.tree_style = tk.BooleanVar(value=True)
+        self.tree_style = tk.BooleanVar(value=self.chosen.get() in ('tree', 'stochastic_tree'))
+        self.draw_symbols = tk.StringVar(value=load_system(self.systems[self.chosen.get()]).draw_symbols)
         for label, var, width in [('Итерации', self.iterations, 4),
                                    ('Случайный угол ±°', self.jitter, 5),
                                    ('Seed', self.seed_l, 6)]:
             ttk.Label(controls, text=label).pack(side='left', padx=(9, 2))
             ttk.Entry(controls, textvariable=var, width=width).pack(side='left')
+        ttk.Label(controls, text='Рисующие:').pack(side='left', padx=(9, 2))
+        ttk.Entry(controls, textvariable=self.draw_symbols, width=5).pack(side='left')
         ttk.Checkbutton(controls, text='Цвет и толщина дерева', variable=self.tree_style).pack(side='left', padx=10)
         ttk.Button(controls, text='Построить', command=lambda: self.error(self.draw_lsystem)).pack(side='left')
-        self.linfo = ttk.Label(page, text='F/G — линия, f — перемещение, +/- — поворот, [] — ветвление')
+        self.linfo = ttk.Label(page, text='Рисующие символы задаются в поле или # draw: AB; f — движение, +/- — поворот, [] — ветвление')
         self.linfo.pack(anchor='w', padx=12, pady=(0, 6))
         self.lcanvas = self.canvas(page)
         self.lcanvas.bind('<Configure>', lambda _: self.error(self.draw_lsystem))
-        menu.bind('<<ComboboxSelected>>', lambda _: self.error(self.draw_lsystem))
+        menu.bind('<<ComboboxSelected>>', lambda _: self.error(self.select_lsystem))
+
+    def select_lsystem(self):
+        system = load_system(self.systems[self.chosen.get()])
+        self.draw_symbols.set(system.draw_symbols)
+        self.tree_style.set(self.chosen.get() in ('tree', 'stochastic_tree'))
+        self.draw_lsystem()
 
     def open_lsystem(self):
         path = filedialog.askopenfilename(filetypes=[('L-системы', '*.txt'), ('Все файлы', '*.*')])
@@ -72,14 +81,14 @@ class GraphicsLab(tk.Tk):
             name = Path(path).stem
             self.systems[name] = Path(path)
             self.chosen.set(name)
-            self.error(self.draw_lsystem)
+            self.error(self.select_lsystem)
 
     def draw_lsystem(self):
         path = self.systems[self.chosen.get()]
         system = load_system(path)
         instructions = expand(system, self.iterations.get(), self.seed_l.get())
         parts = trace(instructions, system.angle, system.direction,
-                      self.jitter.get(), self.seed_l.get())
+                      self.jitter.get(), self.seed_l.get(), self.draw_symbols.get())
         c = self.lcanvas
         width, height = max(c.winfo_width(), 200), max(c.winfo_height(), 200)
         c.delete('all')
@@ -95,7 +104,7 @@ class GraphicsLab(tk.Tk):
             c.create_line(s.x1, s.y1, s.x2, s.y2, fill=color,
                           width=thickness, capstyle='round')
         self.linfo.config(text=f'{path.name}  |  символов: {len(instructions)}  |  отрезков: {len(fitted)}'
-                               '  |  F/G — линия, X — почка, [] — ветвление')
+                               f'  |  рисующие: {self.draw_symbols.get()}, [] — ветвление')
 
     def mountain_tab(self, tabs):
         page = ttk.Frame(tabs)
@@ -126,7 +135,9 @@ class GraphicsLab(tk.Tk):
         self.m_label.pack(side='left')
         self.m_canvas = self.canvas(page)
         self.m_canvas.bind('<Configure>', lambda _: self.draw_mountain())
-        self.history = generate()
+        self.history = generate(self.m_steps.get(), self.m_amplitude.get(),
+                                self.m_roughness.get(), self.m_seed.get(),
+                                self.m_left.get(), self.m_right.get())
 
     def reset_mountain(self):
         self.history = generate(self.m_steps.get(), self.m_amplitude.get(),
@@ -141,6 +152,9 @@ class GraphicsLab(tk.Tk):
         self.draw_mountain()
 
     def draw_mountain(self):
+        #если ещё не всё готово к отрисовке, не рисуй
+        if not hasattr(self, 'm_canvas') or not hasattr(self, 'history'):
+            return
         c = self.m_canvas
         c.delete('all')
         if not hasattr(self, 'history'):
